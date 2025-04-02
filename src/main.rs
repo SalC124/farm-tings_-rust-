@@ -30,7 +30,9 @@ In order to make PIN 21 OUTPUT, so I must write `001` to bits 3-5, so basically.
 #![no_std]
 #![no_main]
 
-use core::{arch::asm, panic::PanicInfo}; // same as `use core::arch::asm;` + `use core::panic::PanicInfo;`
+const BASE_ADDRESS: usize = 0x3F20_0000;
+
+use core::{arch::asm, panic::PanicInfo, usize}; // same as `use core::arch::asm;` + `use core::panic::PanicInfo;`
 
 // makes sure that `_start` is at the beginning of the module, and all code goes after
 mod boot {
@@ -43,7 +45,8 @@ mod boot {
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
     unsafe {
-        core::ptr::write_volatile(0x3F20_0008 as *mut u32, 1 << 3);
+        // core::ptr::write_volatile(0x3F20_0008 as *mut u32, 1 << 3);
+        set_mode(21, Pinmode::Output);
         loop {
             // gpio pin 21 ON
             core::ptr::write_volatile(0x3F20_001C as *mut u32, 1 << 21);
@@ -67,6 +70,30 @@ pub extern "C" fn _start() -> ! {
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
     loop {}
+}
+
+pub enum Pinmode {
+    Input,
+    Output,
+}
+
+pub fn set_mode(pin: u8, mode: Pinmode) -> () {
+    let register: u8 = pin / 10;
+    let bits = (pin % 10) * 3;
+    let change_bits: [u8; 3] = [bits + 2, bits + 1, bits];
+    let sel_bits = match mode {
+        Pinmode::Input => [0, 0, 0],
+        Pinmode::Output => [0, 0, 1],
+        _ => panic!("vro cant type"),
+    };
+    for (index, &change_bit) in change_bits.iter().enumerate() {
+        unsafe {
+            core::ptr::write_volatile(
+                BASE_ADDRESS.wrapping_add((register * 4).into()) as *mut u32,
+                sel_bits[index] << change_bit,
+            )
+        };
+    }
 }
 
 /* to compile:
