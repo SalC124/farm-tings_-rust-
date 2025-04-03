@@ -32,7 +32,7 @@ In order to make PIN 21 OUTPUT, so I must write `001` to bits 3-5, so basically.
 
 const BASE_ADDRESS: usize = 0x3F20_0000;
 
-use core::{arch::asm, panic::PanicInfo, usize}; // same as `use core::arch::asm;` + `use core::panic::PanicInfo;`
+use core::{arch::asm, panic::PanicInfo}; // same as `use core::arch::asm;` + `use core::panic::PanicInfo;`
 
 // makes sure that `_start` is at the beginning of the module, and all code goes after
 mod boot {
@@ -44,23 +44,25 @@ mod boot {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    unsafe {
-        // core::ptr::write_volatile(0x3F20_0008 as *mut u32, 1 << 3);
-        set_mode(21, Pinmode::Output);
-        loop {
-            // gpio pin 21 ON
-            core::ptr::write_volatile(0x3F20_001C as *mut u32, 1 << 21);
+    //core::ptr::write_volatile(0x3F20_0000 as *mut u32, 1 << 12);
+    set_mode(21, Pinmode::Output);
+    loop {
+        digital_write(21, Power::HIGH);
+        //core::ptr::write_volatile(0x3F20_001C as *mut u32, 1 << 21);
 
-            // delay of 16384 cycles
-            for _ in 1..16384 {
+        // delay of 16384 cycles
+        for _ in 1..100000 {
+            unsafe {
                 asm!("nop");
             }
+        }
 
-            // gpio pin 21 OFF
-            core::ptr::write_volatile(0x3F20_0028 as *mut u32, 1 << 21);
+        digital_write(21, Power::LOW);
+        //core::ptr::write_volatile(0x3F20_0028 as *mut u32, 1 << 21);
 
-            // delay of 16384 cycles
-            for _ in 1..16384 {
+        // delay of 16384 cycles
+        for _ in 1..100000 {
+            unsafe {
                 asm!("nop");
             }
         }
@@ -77,14 +79,13 @@ pub enum Pinmode {
     Output,
 }
 
-pub fn set_mode(pin: u8, mode: Pinmode) -> () {
+fn set_mode(pin: u8, mode: Pinmode) {
     let register: u8 = pin / 10;
     let bits = (pin % 10) * 3;
     let change_bits: [u8; 3] = [bits + 2, bits + 1, bits];
     let sel_bits = match mode {
         Pinmode::Input => [0, 0, 0],
         Pinmode::Output => [0, 0, 1],
-        _ => panic!("vro cant type"),
     };
     for (index, &change_bit) in change_bits.iter().enumerate() {
         unsafe {
@@ -95,6 +96,40 @@ pub fn set_mode(pin: u8, mode: Pinmode) -> () {
         };
     }
 }
+
+pub enum Power {
+    HIGH,
+    LOW,
+}
+
+// WHY DOESN'T THIS WORRRRRRRK
+//fn digital_write(pin: u8, power: Power) {
+//    let op_address: usize = match power {
+//        Power::HIGH => 0x1C, // GPIO Output Set Register 0
+//        Power::LOW => 0x28,  // GPIO Output Clear Register 0
+//    };
+//
+//    unsafe {
+//        core::ptr::write_volatile((BASE_ADDRESS + 0x28) as *mut u32, 1 << pin);
+//    };
+//}
+
+fn digital_write(pin: u8, power: Power) {
+    match power {
+        Power::HIGH => unsafe {
+            core::ptr::write_volatile(0x3F20_001C as *mut u32, 1 << pin);
+        },
+        Power::LOW => unsafe {
+            core::ptr::write_volatile(0x3F20_0028 as *mut u32, 1 << pin);
+        },
+    }
+}
+
+//pub fn digital_read(pin: u8) -> usize {
+//    return unsafe {
+//        core::ptr::read_volatile( BASE_ADDRESS.wrapping_add((register * 4).into()) as *mut u32, sel_bits[index] << change_bit)
+//    }
+//}
 
 /* to compile:
 rm -r target/ .rp-files/kernel7.img &> /dev/null || echo "no binaries to delete" && cargo rustc -- -C link-arg=--script=./linker.ld && arm-none-eabi-objcopy -O binary target/armv7a-none-eabi/debug/farm-tings_-rust- ./.rp-files/kernel7.img
