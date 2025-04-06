@@ -44,24 +44,26 @@ mod boot {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    //core::ptr::write_volatile(0x3F20_0000 as *mut u32, 1 << 12);
-    set_mode(21, Pinmode::Output);
+    //set_mode(21, Pinmode::Output);
+    //set_mode(20, Pinmode::Output);
+    unsafe {
+        core::ptr::write_volatile(0x3F20_0008 as *mut u32, 0b000_001_001);
+    }
+
     loop {
         digital_write(21, Power::HIGH);
-        //core::ptr::write_volatile(0x3F20_001C as *mut u32, 1 << 21);
+        digital_write(20, Power::HIGH);
 
-        // delay of 16384 cycles
-        for _ in 1..100000 {
+        for _ in 1..=16384 {
             unsafe {
                 asm!("nop");
             }
         }
 
         digital_write(21, Power::LOW);
-        //core::ptr::write_volatile(0x3F20_0028 as *mut u32, 1 << 21);
+        digital_write(20, Power::LOW);
 
-        // delay of 16384 cycles
-        for _ in 1..100000 {
+        for _ in 1..=16384 {
             unsafe {
                 asm!("nop");
             }
@@ -79,22 +81,28 @@ pub enum Pinmode {
     Output,
 }
 
-fn set_mode(pin: u8, mode: Pinmode) {
-    let register: u8 = pin / 10;
-    let bits = (pin % 10) * 3;
-    let change_bits: [u8; 3] = [bits + 2, bits + 1, bits];
-    let sel_bits = match mode {
-        Pinmode::Input => [0, 0, 0],
-        Pinmode::Output => [0, 0, 1],
+pub fn set_mode(pin: u8, mode: Pinmode) {
+    let select_register_num: u8 = pin / 10;
+    let d_bit = (pin % 10) * 3;
+    let op_bits: u32 = match mode {
+        Pinmode::Input => 0b000,
+        Pinmode::Output => 0b001,
     };
-    for (index, &change_bit) in change_bits.iter().enumerate() {
-        unsafe {
-            core::ptr::write_volatile(
-                BASE_ADDRESS.wrapping_add((register * 4).into()) as *mut u32,
-                sel_bits[index] << change_bit,
-            )
-        };
-    }
+    let select_register_address =
+        BASE_ADDRESS.wrapping_add((select_register_num * 4).into()) as *mut u32;
+
+    let mut mask: u32 = !op_bits;
+    mask <<= d_bit; // mask = mask << d_bit;
+
+    let initial_val: u32;
+    unsafe {
+        initial_val = core::ptr::read_volatile(select_register_address);
+    };
+
+    let new_val: u32 = (initial_val & !mask) | (op_bits << d_bit);
+    unsafe {
+        core::ptr::write_volatile(select_register_address, new_val);
+    };
 }
 
 pub enum Power {
@@ -102,16 +110,17 @@ pub enum Power {
     LOW,
 }
 
-// WHY DOESN'T THIS WORRRRRRRK
 //fn digital_write(pin: u8, power: Power) {
-//    let op_address: usize = match power {
-//        Power::HIGH => 0x1C, // GPIO Output Set Register 0
-//        Power::LOW => 0x28,  // GPIO Output Clear Register 0
+//    let op_suffix: u8 = match power {
+//        Power::HIGH => 0x1C,
+//        Power::LOW => 0x28,
 //    };
+//    let op_address = BASE_ADDRESS.wrapping_add(op_suffix.into()) as *mut u32;
 //
+//    let d_bit = pin;
 //    unsafe {
-//        core::ptr::write_volatile((BASE_ADDRESS + 0x28) as *mut u32, 1 << pin);
-//    };
+//        core::ptr::write_volatile(op_address, 1 << d_bit as u32);
+//    }
 //}
 
 fn digital_write(pin: u8, power: Power) {
@@ -124,12 +133,6 @@ fn digital_write(pin: u8, power: Power) {
         },
     }
 }
-
-//pub fn digital_read(pin: u8) -> usize {
-//    return unsafe {
-//        core::ptr::read_volatile( BASE_ADDRESS.wrapping_add((register * 4).into()) as *mut u32, sel_bits[index] << change_bit)
-//    }
-//}
 
 /* to compile:
 rm -r target/ .rp-files/kernel7.img &> /dev/null || echo "no binaries to delete" && cargo rustc -- -C link-arg=--script=./linker.ld && arm-none-eabi-objcopy -O binary target/armv7a-none-eabi/debug/farm-tings_-rust- ./.rp-files/kernel7.img
