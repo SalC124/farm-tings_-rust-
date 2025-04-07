@@ -44,11 +44,9 @@ mod boot {
 
 #[no_mangle]
 pub extern "C" fn _start() -> ! {
-    //set_mode(21, Pinmode::Output);
-    //set_mode(20, Pinmode::Output);
-    unsafe {
-        core::ptr::write_volatile(0x3F20_0008 as *mut u32, 0b000_001_001);
-    }
+    set_mode(21, Pinmode::Output);
+    set_mode(20, Pinmode::Output);
+    //unsafe { core::ptr::write_volatile(0x3F20_0008 as *mut u32, 0b000_001_001); }
 
     loop {
         digital_write(21, Power::HIGH);
@@ -88,22 +86,36 @@ pub fn set_mode(pin: u8, mode: Pinmode) {
         Pinmode::Input => 0b000,
         Pinmode::Output => 0b001,
     };
-    let select_register_address =
-        BASE_ADDRESS.wrapping_add((select_register_num * 4).into()) as *mut u32;
+    let select_register_address = BASE_ADDRESS.wrapping_add((select_register_num * 4).into()) as *mut u32;
+    let mut val: u32; unsafe { val = core::ptr::read_volatile(select_register_address); };
 
-    let mut mask: u32 = !op_bits;
-    mask <<= d_bit; // mask = mask << d_bit;
+    let mask:u32 = !(0b111 << d_bit);
+    val &= mask;
+    val |= op_bits << d_bit;
 
-    let initial_val: u32;
-    unsafe {
-        initial_val = core::ptr::read_volatile(select_register_address);
-    };
-
-    let new_val: u32 = (initial_val & !mask) | (op_bits << d_bit);
-    unsafe {
-        core::ptr::write_volatile(select_register_address, new_val);
-    };
+    unsafe { core::ptr::write_volatile(select_register_address, val); };
 }
+
+/* code i made online to test solutions: (link: https://play.rust-lang.org/?version=stable&mode=debug&edition=2024&gist=22248153c2aa3cd4ee43bfe209ebc778)
+fn main() {
+    let mut prev:u32 = 0b00_000_000_000_000_000_000_000_000_011_011;
+    let mut mask:u32;
+    
+    mask = !(0b111 << 0); // == 0b1111_1111_1111_1111_1111_1111_1111_1000;
+    println!("prev = {prev}; mask = {mask}");
+    
+    prev = prev & mask; println!("{prev} (we want 24)");
+    prev |= 0b001 << 0; println!("{prev} (we want 25)");
+    
+    mask = !(0b111 << 3);
+    println!("prev = {prev}; mask = {mask}");
+    
+    prev = prev & mask; println!("{prev} (we want 1)");
+    prev |= 0b001 << 3; println!("{prev} (we want 9)");
+    
+    println!("if true, sigma! -> {}", prev == 0b00_000_000_000_000_000_000_000_000_001_001);
+}
+*/
 
 pub enum Power {
     HIGH,
